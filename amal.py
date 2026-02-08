@@ -8,18 +8,19 @@ import torch
 import torch.nn as nn
 from torch.utils import data
 
-from loss import SoftCELoss, CFLoss
+from loss.loss import SoftCELoss, CFLoss
 from utils.stream_metrics import StreamClsMetrics, AverageMeter
 from models.cfl import CFL_ConvBlock
-from datasets import StanfordDogs, CUB200, DRDataset
+# from datasets import StanfordDogs, CUB200, DRDataset
+from datasets.tus import TUSDataset
 from utils import mkdir_if_missing, Logger
-from dataloader import get_concat_dataloader
+# from dataloader import get_concat_dataloader
 from torchvision import transforms
 from models.resnet import *
 #from models.densenet import *
 from torchvision.transforms import InterpolationMode
 import torch.nn.functional as F
-from loss import dkd_loss
+# from loss import dkd_loss
 
 _model_dict = {
     'resnet18': resnet18,
@@ -42,7 +43,7 @@ def entropy_regularization(probabilities, lambda_entropy=0.1):
 def get_parser():
     parser = argparse.ArgumentParser()
     # 需要修改
-    parser.add_argument("--data_root", type=str, default='/data3/tongshuo/Grading/CommonFeatureLearning/data')
+    parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/datasets')
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--model", type=str, default='resnet34')
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -177,8 +178,8 @@ def main():
 
     mkdir_if_missing('checkpoints')
     # 需要修改
-    latest_ckpt = '/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/DRamal_%s_latest.pth'%opts.model
-    best_ckpt = '/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/DRamal_%s_best.pth'%opts.model
+    latest_ckpt = '/root/autodl-tmp/bs/checkpoints/tus/%s_latest.pth'%opts.model
+    best_ckpt = '/root/autodl-tmp/bs/checkpoints/tus/%s_best.pth'%opts.model
 
     #  Set up dataloader
     #train_loader, val_loader = get_concat_dataloader(data_root=opts.data_root, batch_size=opts.batch_size, download=opts.download)
@@ -196,8 +197,8 @@ def main():
                                  std=[0.229, 0.224, 0.225])
         ])
     # 需要修改
-    train_data = DRDataset(None,None,'train',tran,0)
-    val_data = DRDataset(None,None,'valid',tran,0)
+    train_data = TUSDataset(None,None,'train',tran,0)
+    val_data = TUSDataset(None,None,'valid',tran,0)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=opts.batch_size, shuffle=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=opts.batch_size, shuffle=False, drop_last=True)
 
@@ -325,7 +326,7 @@ def main():
             best_score = val_score['Overall Acc']
             save_ckpt(best_ckpt)
             # 这里需要修改
-            with open('/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/score_student.txt', mode='w') as f:
+            with open('/root/autodl-tmp/bs/checkpoints/tus/score_student.txt', mode='w') as f:
                 f.write(metrics.to_str(val_score))
         elif val_score['Overall Acc'] <= best_score:
             wait += 1
