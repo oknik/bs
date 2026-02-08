@@ -1,4 +1,4 @@
-class TUSDataset(data_utils.Dataset):
+class INDataset(data_utils.Dataset):
 
     def __init__(self, patch_level, img_root, dataset, task, transform=None, fold=3):
         """

@@ -12,7 +12,7 @@ from loss.loss import SoftCELoss, CFLoss
 from utils.stream_metrics import StreamClsMetrics, AverageMeter
 from models.cfl import CFL_ConvBlock
 # from datasets import StanfordDogs, CUB200, DRDataset
-from datasets.tus import TUSDataset
+from datasets.in import INDataset
 from utils import mkdir_if_missing, Logger
 # from dataloader import get_concat_dataloader
 from torchvision import transforms
@@ -197,8 +197,8 @@ def main():
                                  std=[0.229, 0.224, 0.225])
         ])
     # 需要修改
-    train_data = TUSDataset(None,None,'train','S',tran,0)
-    val_data = TUSDataset(None,None,'valid','S',tran,0)
+    train_data = INDataset(None,None,'train','S',tran,0)
+    val_data = INDataset(None,None,'valid','S',tran,0)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=opts.batch_size, shuffle=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=opts.batch_size, shuffle=False, drop_last=True)
 
