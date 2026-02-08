@@ -1,67 +1,66 @@
-# tus.py
-import torch.utils.data as data_utils
-import csv
-import random
-import pickle
-
 class TUSDataset(data_utils.Dataset):
 
-    def __init__(self, patch_level, img_root, dataset, transform=None, fold=3):
+    def __init__(self, patch_level, img_root, dataset, task, transform=None, fold=3):
+        """
+        task: 'T1', 'T2', 'S'
+        """
         self.data_list = []
         self.transform = transform
         self.patch_level = patch_level
+        self.task = task
 
         if dataset == 'train':
-            data_num = [i for i in range(10) if i != fold]
+            data_num = [i for i in range(5) if i != fold]
         elif dataset == 'valid':
             data_num = [fold]
-
-        print("Use the data fold: {}".format(fold))
+        print("Validation fold: {}".format(fold))
 
         for i in data_num:  
-            # 需要修改
-            f = open('/data2/dongchunlai/data/thyroid_dataset/ten_fold/fold_{}.csv'.format(i), "r")
+            f = open('/root/autodl-tmp/bs/IN/fold{}.csv'.format(i), "r")
             reader = csv.reader(f)
             next(reader)
             for row in reader:
-                # 保持 row[1:] 结构
-                self.data_list.append(row[1:])
+                self.data_list.append(row)
 
-        # ===============================
-        # 标签映射（只改这里）
-        # 原始 label: 1,2,3,4,5,6,7
-        # 目标 student: 0=other(12347), 1=follicular(5), 2=medullary(6)
-        # ===============================
+        # label_list 原始标签
+        self.raw_label_list = [int(x[-1]) for x in self.data_list]
 
-        new_list = []
-        for item in self.data_list:
-            img_name = item[0]
-            label = int(item[1])
+        # 映射 label
+        self.label_list = self.map_labels(self.raw_label_list)
 
-            # other = 1,2,3,4,7
-            if label in [1, 2, 3, 4, 7]:
-                new_label = 0
-            elif label == 5:
-                new_label = 1
-            elif label == 6:
-                new_label = 2
-            else:
-                continue
-
-            new_list.append([img_name, str(new_label)])
-
-        self.data_list = new_list
-
-        # label_list 保持一致
-        self.label_list = [int(x[-1]) for x in self.data_list]
-
+        # patch_class
         if self.patch_level == 1:
             self.patch_class = self.get_token_class(fold)
 
-        # 保持原 label_num 结构（扩展为3类）
-        self.label_num = [0, 0, 0]
+        # label_num
+        if task == 'S':
+            self.label_num = [0,0,0]
+        else:
+            self.label_num = [0,0]  # 二分类
         for each in self.label_list:
             self.label_num[each] += 1
 
-        print(self.label_num)
-        print(len(self.data_list))
+        print("Label counts:", self.label_num)
+        print("Total samples:", len(self.data_list))
+
+    def map_labels(self, labels):
+        if self.task == 'T1':
+            # 0 -> 0, 1/2 -> 1
+            return [0 if l==0 else 1 for l in labels]
+        elif self.task == 'T2':
+            # 1 -> 0, 2 -> 1, ignore 0?
+            # 如果 T2 只区分 1 和 2，可以过滤掉 0
+            filtered_labels = []
+            filtered_idx = []
+            for idx, l in enumerate(labels):
+                if l in [1,2]:
+                    filtered_labels.append(l-1)  # 1->0, 2->1
+                    filtered_idx.append(idx)
+            # 保留对应 data_list
+            self.data_list = [self.data_list[i] for i in filtered_idx]
+            return filtered_labels
+        else:  # S
+            return labels
+
+    def __len__(self):
+        return len(self.data_list)

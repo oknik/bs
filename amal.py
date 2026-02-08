@@ -197,8 +197,8 @@ def main():
                                  std=[0.229, 0.224, 0.225])
         ])
     # 需要修改
-    train_data = TUSDataset(None,None,'train',tran,0)
-    val_data = TUSDataset(None,None,'valid',tran,0)
+    train_data = TUSDataset(None,None,'train','S',tran,0)
+    val_data = TUSDataset(None,None,'valid','S',tran,0)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=opts.batch_size, shuffle=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=opts.batch_size, shuffle=False, drop_last=True)
 
