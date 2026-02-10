@@ -1,9 +1,0 @@
-Namespace(data_root='/root/autodl-tmp/bs/datasets', batch_size=64, model='resnet34', lr=0.0001, gpu_id='0', random_seed=1337, download=False, epochs=50, cfl_lr=None, t1_ckpt='/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/dr012_resnet34_best.pth', t2_ckpt='/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/dr34_resnet34_best.pth', patience=10)
-Validation fold: 0
-[299, 147, 31]
-477
-Validation fold: 0
-[73, 38, 8]
-119
-Loading pretrained teachers ...
-T1: resnet34, T2: resnet34
