@@ -1,0 +1,192 @@
+Namespace(data_root='/root/autodl-tmp/bs/IN', batch_size=64, model='resnet18', lr=0.0001, gpu_id='0', random_seed=1337, download=False, epochs=50, cfl_lr=None, t1_ckpt='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T1_fold0.pth', t2_ckpt='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T2_fold0.pth', patience=10)
+TRAIN fold: 0
+Label counts: Counter({0: 339, 1: 165, 2: 33})
+Total samples: 537
+VALID fold: 0
+Label counts: Counter({0: 80, 1: 43, 2: 11})
+Total samples: 134
+Target student: resnet18
+Training ...
+Epoch 0, lr = 0.000100
+End of Epoch 0/50, Average Loss=70.038322
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6343
+F1 Score      : 0.3713
+Precision     : 0.4075
+Recall        : 0.3936
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 1, lr = 0.000100
+End of Epoch 1/50, Average Loss=54.792084
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.5970
+F1 Score      : 0.3970
+Precision     : 0.3800
+Recall        : 0.4158
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 2, lr = 0.000100
+End of Epoch 2/50, Average Loss=44.193312
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6567
+F1 Score      : 0.4367
+Precision     : 0.4187
+Recall        : 0.4563
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 3, lr = 0.000100
+End of Epoch 3/50, Average Loss=41.939371
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6045
+F1 Score      : 0.3860
+Precision     : 0.3734
+Recall        : 0.4020
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 4, lr = 0.000100
+End of Epoch 4/50, Average Loss=40.827664
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6194
+F1 Score      : 0.4095
+Precision     : 0.3923
+Recall        : 0.4283
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 5, lr = 0.000100
+End of Epoch 5/50, Average Loss=40.340244
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6493
+F1 Score      : 0.4120
+Precision     : 0.4095
+Recall        : 0.4270
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 6, lr = 0.000100
+End of Epoch 6/50, Average Loss=40.221942
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6642
+F1 Score      : 0.4238
+Precision     : 0.4196
+Recall        : 0.4390
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 7, lr = 0.000100
+End of Epoch 7/50, Average Loss=39.430013
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6716
+F1 Score      : 0.4253
+Precision     : 0.4308
+Recall        : 0.4395
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 8, lr = 0.000100
+End of Epoch 8/50, Average Loss=39.535801
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6716
+F1 Score      : 0.4595
+Precision     : 0.4413
+Recall        : 0.4933
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 9, lr = 0.000100
+End of Epoch 9/50, Average Loss=39.304573
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6716
+F1 Score      : 0.4336
+Precision     : 0.4216
+Recall        : 0.4503
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 10, lr = 0.000100
+End of Epoch 10/50, Average Loss=38.816204
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.7015
+F1 Score      : 0.4498
+Precision     : 0.4545
+Recall        : 0.4634
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 11, lr = 0.000100
+End of Epoch 11/50, Average Loss=38.688853
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6716
+F1 Score      : 0.4316
+Precision     : 0.4262
+Recall        : 0.4467
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 12, lr = 0.000100
+End of Epoch 12/50, Average Loss=38.349690
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.7164
+F1 Score      : 0.5293
+Precision     : 0.7947
+Recall        : 0.5194
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_best.pth
+Epoch 13, lr = 0.000100
+End of Epoch 13/50, Average Loss=38.217694
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6567
+F1 Score      : 0.4310
+Precision     : 0.4199
+Recall        : 0.4455
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 14, lr = 0.000100
+End of Epoch 14/50, Average Loss=38.165173
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6642
+F1 Score      : 0.4481
+Precision     : 0.4280
+Recall        : 0.4712
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Epoch 15, lr = 0.000010
+End of Epoch 15/50, Average Loss=37.729034
+Model saved as /root/autodl-tmp/bs/checkpoints/student/resnet18_latest.pth
+validate on val set...
+Validation Metrics:
+Accuracy      : 0.6418
+F1 Score      : 0.4186
+Precision     : 0.4062
+Recall        : 0.4336
+Sensitivity   : 0.0000
+Specificity   : 0.0000
+Early stopping at epoch: 15

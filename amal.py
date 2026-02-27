@@ -6,21 +6,19 @@ import argparse
 
 import torch
 import torch.nn as nn
-from torch.utils import data
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 from loss.loss import SoftCELoss, CFLoss
 from utils.stream_metrics import StreamClsMetrics, AverageMeter
 from models.cfl import CFL_ConvBlock
-# from datasets import StanfordDogs, CUB200, DRDataset
-from datasets.in import INDataset
+from datasets.in_dataset import INDataset
+from datasets.paired_transform import PairedTransform
 from utils import mkdir_if_missing, Logger
-# from dataloader import get_concat_dataloader
-from torchvision import transforms
 from models.resnet import *
-#from models.densenet import *
-from torchvision.transforms import InterpolationMode
-import torch.nn.functional as F
-# from loss import dkd_loss
+
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+
 
 _model_dict = {
     'resnet18': resnet18,
@@ -43,9 +41,9 @@ def entropy_regularization(probabilities, lambda_entropy=0.1):
 def get_parser():
     parser = argparse.ArgumentParser()
     # 需要修改
-    parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/datasets')
+    parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/IN')
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--model", type=str, default='resnet34')
+    parser.add_argument("--model", type=str, default='resnet18')
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gpu_id", type=str, default='0')
     parser.add_argument("--random_seed", type=int, default=1337)
@@ -53,8 +51,8 @@ def get_parser():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--cfl_lr", type=float, default=None)
     # 需要修改
-    parser.add_argument("--t1_ckpt", type=str, default='/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/dr012_resnet34_best.pth')
-    parser.add_argument("--t2_ckpt", type=str, default='/data3/tongshuo/Grading/CommonFeatureLearning/checkpoints/dr34_resnet34_best.pth')
+    parser.add_argument("--t1_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T1_fold0.pth')
+    parser.add_argument("--t2_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T2_fold0.pth')
 
     parser.add_argument("--patience", type=int, default=10)
     return parser
@@ -73,10 +71,13 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
     avgmeter = AverageMeter()
     #is_densenet = isinstance(model, DenseNet)
     is_densenet = False
-    for cur_step, (images, labels) in enumerate(train_loader):
 
-        images = images.to(device, dtype=torch.float32)
+    for cur_step, (images_C, images_G, labels) in enumerate(train_loader):
+        images_C = images_C.to(device, dtype=torch.float32)
+        images_G = images_G.to(device, dtype=torch.float32)
         labels = labels.to(device, dtype=torch.long)
+
+        images = torch.cat([images_C, images_G], dim=1)
 
         # get soft-target logits
         # 教师不更新参数（冻结）
@@ -87,11 +88,10 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
             #print('labels:', labels[:10])
             #print('t1_out:', t1_out[:10])
             #print('t2_out:', t2_out[:10])
-            # 拼接两个教师 logits
-            t_outs = torch.cat((t1_out, t2_out), dim=1)
 
-            # 教师概率分布。soft label
-            t_outs = F.softmax(t_outs, dim=1)
+            # 拼接两个教师 logits(我的任务不应该直接拼接)
+            t1_prob = F.softmax(t1_out, dim=1)  # [B,2]
+            t2_prob = F.softmax(t2_out, dim=1)  # [B,2]
 
             # 提取教师特征（倒数第二层）
             ft1 = t1.layer4.output
@@ -100,6 +100,8 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
         # get student output
         # 学生 logits
         s_outs = model(images)
+        s_prob = F.softmax(s_outs, dim=1)
+        
         # 提取学生特征
         if is_densenet:
             fs = model.features.output
@@ -110,13 +112,21 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
 
         (hs, ht), (ft_, ft) = cfl_blk(fs, ft)
 
+        s_t1 = F.softmax(torch.stack([s_prob[:, 0], s_prob[:, 1] + s_prob[:, 2]], dim=1), dim=1)
+        s_t2 = F.softmax(torch.stack([s_prob[:, 1], s_prob[:, 2]], dim=1), dim=1)
+
         # 计算熵正则化项
         #entropy_loss = entropy_regularization(t_outs)
         loss_1 = criterion(s_outs, labels)  #输出与真实标签之间计算损失
-        loss_ce = criterion_ce(s_outs, t_outs) #软目标损失
+        #软目标损失
+        loss_ce1 = criterion_ce(s_t1, t1_prob)
+        loss_ce2 = criterion_ce(s_t2, t2_prob)
+        loss_ce = loss_ce1 + loss_ce2
+        
         loss_cf = 10*criterion_cf(hs, ht, ft_, ft) #MMD和重构损失
 
         loss = loss_1 + loss_ce + loss_cf
+
         loss.backward()
         optim.step()
 
@@ -139,22 +149,48 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
         scheduler.step()
     return avgmeter.get_results('loss')
 
-
-def validate(model, loader, device, metrics):
-    """Do validation and return specified samples"""
-    metrics.reset()
+def validate(model, loader, device):
+    """Validate and compute all metrics"""
+    all_preds = []
+    all_labels = []
+    model.eval()
     with torch.no_grad():
-        for i, (images, labels) in tqdm(enumerate(loader)):
-
-            images = images.to(device, dtype=torch.float32)
+        for images_C, images_G, labels in loader:
+            images_C = images_C.to(device, dtype=torch.float32)
+            images_G = images_G.to(device, dtype=torch.float32)
             labels = labels.to(device, dtype=torch.long)
 
+            images = torch.cat([images_C, images_G], dim=1)
             outputs = model(images)
-            preds = outputs.detach()  # .max(dim=1)[1].cpu().numpy()
-            targets = labels  # .cpu().numpy()
-            metrics.update(preds, targets)
-        score = metrics.get_results()
-    return score
+            preds = torch.argmax(outputs, dim=1)
+
+            all_preds.append(preds.cpu())
+            all_labels.append(labels.cpu())
+
+    all_preds = torch.cat(all_preds).numpy()
+    all_labels = torch.cat(all_labels).numpy()
+
+    acc = accuracy_score(all_labels, all_preds)
+    f1 = f1_score(all_labels, all_preds, average='macro')
+    precision = precision_score(all_labels, all_preds, average='macro')
+    recall = recall_score(all_labels, all_preds, average='macro')
+
+    # Sensitivity / Specificity（仅二分类有意义）
+    if len(np.unique(all_labels)) == 2:
+        tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
+        sensitivity = tp / (tp + fn)
+        specificity = tn / (tn + fp)
+    else:
+        sensitivity, specificity = 0.0, 0.0
+
+    return {
+        'Overall Acc': acc,
+        'F1': f1,
+        'Precision': precision,
+        'Recall': recall,
+        'Sensitivity': sensitivity,
+        'Specificity': specificity
+    }
 
 
 def main():
@@ -178,56 +214,63 @@ def main():
 
     mkdir_if_missing('checkpoints')
     # 需要修改
-    latest_ckpt = '/root/autodl-tmp/bs/checkpoints/tus/%s_latest.pth'%opts.model
-    best_ckpt = '/root/autodl-tmp/bs/checkpoints/tus/%s_best.pth'%opts.model
+    latest_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_latest.pth'%opts.model
+    best_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_best.pth'%opts.model
 
     #  Set up dataloader
     #train_loader, val_loader = get_concat_dataloader(data_root=opts.data_root, batch_size=opts.batch_size, download=opts.download)
     # 数据增强
-    tran = transforms.Compose([
-            transforms.Resize((256, 256), interpolation=InterpolationMode.BILINEAR),
-            transforms.RandomResizedCrop(224, scale=(0.08, 1.)),
-            transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.2, 0.1)  # not strengthened
-            ], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
-        ])
+    transform = PairedTransform()
+
     # 需要修改
-    train_data = INDataset(None,None,'train','S',tran,0)
-    val_data = INDataset(None,None,'valid','S',tran,0)
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=opts.batch_size, shuffle=True, drop_last=True)
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=opts.batch_size, shuffle=False, drop_last=True)
+    train_dataset = INDataset(img_root=opts.data_root, dataset='train', task='S', fold=0, transform=transform)
+    val_dataset   = INDataset(img_root=opts.data_root, dataset='valid', task='S', fold=0, transform=transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=4)
+    val_loader   = DataLoader(val_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=4)
 
     # pretrained teachers
     # 加载了教师模型，一个教师模型3分类，一个2分类。
     # 拆成了两个任务。数量多的一起分，数量少的一起分。缓解类别不均衡。
-    t1_model_name = opts.t1_ckpt.split('/')[-1].split('_')[1] 
-    t1 = _model_dict[t1_model_name](num_classes=3).to(device) 
-    t2_model_name = opts.t2_ckpt.split('/')[-1].split('_')[1]  
-    t2 = _model_dict[t2_model_name](num_classes=2).to(device)
-    #t1_model_name = opts.t1_ckpt.split('/')[1].split('_')[1] 
-    #t1 = _model_dict[t1_model_name](num_classes=200).to(device) # cub200
-    #t2_model_name = opts.t2_ckpt.split('/')[1].split('_')[1]  
-    #t2 = _model_dict[t2_model_name](num_classes=120).to(device) # dogs
-    print("Loading pretrained teachers ...\nT1: %s, T2: %s"%(t1_model_name, t2_model_name))
-    t1.load_state_dict(torch.load(opts.t1_ckpt)['model_state'])
-    t2.load_state_dict(torch.load(opts.t2_ckpt)['model_state'])
+    t1 = _model_dict["resnet18"](num_classes=2)
+    t2 = _model_dict["resnet18"](num_classes=2)
+
+    t1.conv1 = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    t2.conv1 = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+
+    in_features = t1.fc.in_features
+
+    t1.fc = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(in_features, 2)
+    )
+
+    t2.fc = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(in_features, 2)
+    )
+
+    t1.to(device)
+    t2.to(device)
+
+    t1.load_state_dict(torch.load(opts.t1_ckpt, map_location=device))
+    t2.load_state_dict(torch.load(opts.t2_ckpt, map_location=device))
+
     t1.eval()
     t2.eval()
 
     print("Target student: %s"%opts.model)
     #stu = _model_dict[opts.model](pretrained=True, num_classes=120+200).to(device)
     #metrics = StreamClsMetrics(120+200)
-    stu = _model_dict[opts.model](pretrained=True, num_classes=3+2).to(device)
-    metrics = StreamClsMetrics(3+2)
+    stu = _model_dict[opts.model](pretrained=True, num_classes=3)
+    stu.conv1 = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    stu.to(device)
+
+    metrics = StreamClsMetrics(3)
 
     # Setup Common Feature Blocks
-    t1_feature_dim = t1.fc.in_features #512
-    t2_feature_dim = t2.fc.in_features #512
+    t1_feature_dim = t1.layer4[-1].conv2.out_channels
+    t2_feature_dim = t2.layer4[-1].conv2.out_channels
 
     is_densenet = True if 'densenet' in opts.model else False
 
@@ -317,9 +360,15 @@ def main():
         stu.eval()
         val_score = validate(model=stu,
                              loader=val_loader,
-                             device=device,
-                             metrics=metrics)
-        print(metrics.to_str(val_score))
+                             device=device)
+        print("Validation Metrics:")
+        print(f"Accuracy      : {val_score['Overall Acc']:.4f}")
+        print(f"F1 Score      : {val_score['F1']:.4f}")
+        print(f"Precision     : {val_score['Precision']:.4f}")
+        print(f"Recall        : {val_score['Recall']:.4f}")
+        print(f"Sensitivity   : {val_score['Sensitivity']:.4f}")
+        print(f"Specificity   : {val_score['Specificity']:.4f}")
+        
         sys.stdout.flush()
         # =====  Save Best Model  =====
         if val_score['Overall Acc'] > best_score:  # save best model

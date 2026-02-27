@@ -6,7 +6,7 @@ from torchvision.models import resnet18
 from torch.utils.data import DataLoader
 from collections import Counter
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
-from datasets.out import OUTDataset
+from datasets.out_dataset import OUTDataset
 from datasets.paired_transform import PairedTransform
 import csv
 import datetime
