@@ -1,1 +1,9 @@
 *.pth
+/IN
+/OUT
+/OUTP
+/MIX
+/results
+/save_logs
+/logs
+/checkpoints
