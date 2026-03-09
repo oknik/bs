@@ -80,7 +80,7 @@ def train_resnet(img_dir, task, fold=0, batch_size=16, epochs=50,
     patience_counter = 0
 
     # 需要修改
-    model_name = "resnet18_6ch_OUTP"
+    model_name = "resnet18_6ch_MIX"
 
     for epoch in range(epochs):
 
@@ -171,5 +171,5 @@ if __name__ == "__main__":
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs("checkpoints", exist_ok=True)
 
-    train_resnet(img_dir="/root/autodl-tmp/bs/OUTP/teacher", task="T1", fold=0, epochs=50, timestamp=timestamp)
-    train_resnet(img_dir="/root/autodl-tmp/bs/OUTP/teacher", task="T2", fold=0, epochs=50, timestamp=timestamp)
+    train_resnet(img_dir="autodl-tmp/bs/MIX/teacher", task="T1", fold=0, epochs=50, timestamp=timestamp)
+    train_resnet(img_dir="autodl-tmp/bs/MIX/teacher", task="T2", fold=0, epochs=50, timestamp=timestamp)

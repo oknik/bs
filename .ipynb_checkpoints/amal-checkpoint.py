@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from datetime import datetime
 
 from loss.loss import SoftCELoss, CFLoss
 from utils.stream_metrics import StreamClsMetrics, AverageMeter
@@ -42,7 +41,7 @@ def entropy_regularization(probabilities, lambda_entropy=0.1):
 def get_parser():
     parser = argparse.ArgumentParser()
     # 需要修改
-    parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/OUTP/student')
+    parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/IN')
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--model", type=str, default='resnet18')
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -52,8 +51,8 @@ def get_parser():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--cfl_lr", type=float, default=None)
     # 需要修改
-    parser.add_argument("--t1_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_OUTP_20260309_111149/T1_fold0.pth')
-    parser.add_argument("--t2_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_OUTP_20260309_111149/T2_fold0.pth')
+    parser.add_argument("--t1_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T1_fold0.pth')
+    parser.add_argument("--t2_ckpt", type=str, default='/root/autodl-tmp/bs/checkpoints/teacher/resnet18_6ch_20260210_155401/T2_fold0.pth')
 
     parser.add_argument("--patience", type=int, default=10)
     return parser
@@ -195,18 +194,13 @@ def validate(model, loader, device):
 
 
 def main():
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
     opts = get_parser().parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Set up random seed
     mkdir_if_missing('checkpoints')
     mkdir_if_missing('logs')
-    log_dir = os.path.join('logs', 'student')
-    os.makedirs(log_dir, exist_ok=True)
-    sys.stdout = Logger(os.path.join(log_dir, f'amal_{opts.model}_{timestamp}.txt'))
-    # sys.stdout = Logger(os.path.join('logs', 'amal_%s.txt'%(opts.model)))
+    sys.stdout = Logger(os.path.join('logs', 'amal_%s.txt'%(opts.model)))
     print(opts)
 
     # 随机种子
@@ -220,10 +214,8 @@ def main():
 
     mkdir_if_missing('checkpoints')
     # 需要修改
-    latest_ckpt = f'/root/autodl-tmp/bs/checkpoints/student/{opts.model}_{timestamp}_latest.pth'
-    best_ckpt = f'/root/autodl-tmp/bs/checkpoints/student/{opts.model}_{timestamp}_best.pth'
-    # latest_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_latest.pth'%opts.model
-    # best_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_best.pth'%opts.model
+    latest_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_latest.pth'%opts.model
+    best_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_best.pth'%opts.model
 
     #  Set up dataloader
     #train_loader, val_loader = get_concat_dataloader(data_root=opts.data_root, batch_size=opts.batch_size, download=opts.download)
