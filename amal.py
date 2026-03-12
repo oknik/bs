@@ -19,6 +19,8 @@ from utils import mkdir_if_missing, Logger
 from models.resnet import *
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+from datasets.teacher_dataset import TeacherDataset
+from pair_generator import PairGenerator
 
 
 _model_dict = {
@@ -39,11 +41,22 @@ def entropy_regularization(probabilities, lambda_entropy=0.1):
     # 乘以权重系数 lambda_entropy
     return lambda_entropy * torch.mean(entropy)
 
+# ===============================
+# cosine regularization loss
+# ===============================
+def cosine_regularization(sim, label, margin=0.5):
+    pos = label * (1 - sim)
+    neg = (1 - label) * torch.relu(sim - margin)
+
+    loss = torch.mean(pos + neg)
+
+    return loss
+
 def get_parser():
     parser = argparse.ArgumentParser()
     # 需要修改
     parser.add_argument("--data_root", type=str, default='/root/autodl-tmp/bs/OUTP/student')
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--model", type=str, default='resnet18')
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gpu_id", type=str, default='0')
@@ -59,7 +72,7 @@ def get_parser():
     return parser
 
 # 训练学生模型一个 epoch，并返回平均 loss
-def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teachers, optim, train_loader, device, scheduler=None, print_interval=100):
+def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teachers, optim, train_dataset, train_loader, device, scheduler=None, print_interval=100):
     """Train and return epoch loss"""
     # 两个教师模型
     t1, t2 = teachers
@@ -73,6 +86,7 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
     #is_densenet = isinstance(model, DenseNet)
     is_densenet = False
 
+    pair_generator = PairGenerator(train_dataset, None, None)
     for cur_step, (images_C, images_G, labels) in enumerate(train_loader):
         images_C = images_C.to(device, dtype=torch.float32)
         images_G = images_G.to(device, dtype=torch.float32)
@@ -80,72 +94,122 @@ def amal(cur_epoch, criterion, criterion_ce, criterion_cf, model, cfl_blk, teach
 
         images = torch.cat([images_C, images_G], dim=1)
 
-        # get soft-target logits
-        # 教师不更新参数（冻结）
+        data_shot_C, data_shot_G, data_query_C, data_query_G, pair_label = pair_generator.batch_generator(cur_epoch, images_C, images_G, labels)
+        shot = torch.cat([data_shot_C, data_shot_G], dim=1)
+        query = torch.cat([data_query_C, data_query_G], dim=1)
+
+        # 清零梯度
         optim.zero_grad()
+        # ----------------------------
+        # Teacher Forward (冻结参数)
+        # ----------------------------
         with torch.no_grad():
+            # logits
             t1_out = t1(images)
             t2_out = t2(images)
-            #print('labels:', labels[:10])
-            #print('t1_out:', t1_out[:10])
-            #print('t2_out:', t2_out[:10])
 
-            # 拼接两个教师 logits(我的任务不应该直接拼接)
-            t1_prob = F.softmax(t1_out, dim=1)  # [B,2]
-            t2_prob = F.softmax(t2_out, dim=1)  # [B,2]
+            # predicted probabilities
+            t1_prob = F.softmax(t1_out, dim=1)
+            t2_prob = F.softmax(t2_out, dim=1)
 
-            # 提取教师特征（倒数第二层）
-            ft1 = t1.layer4.output
+            # features（倒数第二层）
+            ft1 = t1.layer4.output 
             ft2 = t2.layer4.output
-        
-        # get student output
-        # 学生 logits
+            ft = [ft1, ft2]
+
+        # ----------------------------
+        # 2. Student Forward
+        # ----------------------------
         s_outs = model(images)
+
         s_prob = F.softmax(s_outs, dim=1)
         
-        # 提取学生特征
         if is_densenet:
             fs = model.features.output
         else:
             fs = model.layer4.output
 
-        ft = [ft1, ft2]
-
+        # CFL Block：输入学生特征和教师特征，输出对齐后的学生特征和重构的教师特征
         (hs, ht), (ft_, ft) = cfl_blk(fs, ft)
 
+        # ----------------------------
+        # 3. Teacher-Student Loss
+        # ----------------------------
+        # loss1：交叉熵损失（Student 与真实标签） mean_ce? balanced_ce?
+        loss_ce_real = criterion(s_outs, labels)
+
+        # loss2：蒸馏损失 (Student 与 Teacher logits 软标签之间的)
         s_t1 = F.softmax(torch.stack([s_prob[:, 0], s_prob[:, 1] + s_prob[:, 2]], dim=1), dim=1)
         s_t2 = F.softmax(torch.stack([s_prob[:, 1], s_prob[:, 2]], dim=1), dim=1)
 
-        # 计算熵正则化项
-        #entropy_loss = entropy_regularization(t_outs)
-        loss_1 = criterion(s_outs, labels)  #输出与真实标签之间计算损失
-        #软目标损失
         loss_ce1 = criterion_ce(s_t1, t1_prob)
         loss_ce2 = criterion_ce(s_t2, t2_prob)
-        loss_ce = loss_ce1 + loss_ce2
+        loss_kd = loss_ce1 + loss_ce2
         
+        # loss3：CFLoss（对齐特征和重构特征之间的损失）
         loss_cf = 10*criterion_cf(hs, ht, ft_, ft) #MMD和重构损失
 
-        loss = loss_1 + loss_ce + loss_cf
+        # ----------------------------
+        # 4. Pair / Cosine
+        # ----------------------------
+        emb_shot  = F.normalize(model(shot), dim=1)
+        emb_query = F.normalize(model(query), dim=1)
+
+        # pair 相似性损失
+        sim = torch.cosine_similarity(emb_shot, emb_query)
+        sim_prob = torch.sigmoid(sim)
+        # loss4：相似性损失
+        loss_pair = nn.BCELoss()(sim_prob, pair_label)
+
+        # loss5：cosine regularization（增强同类样本的相似性，降低异类样本的相似性）
+        loss_cos = cosine_regularization(sim, pair_label)
+
+        # ----------------------------
+        # 5. 总 Loss
+        # ----------------------------
+        # 权重设置
+        weight_loss_real = 2.0
+        weight_loss_kd   = 1.0
+        weight_loss_cf   = 1.0
+        weight_loss_pair = 1.0
+        weight_loss_cos  = 0.1
+
+        loss = (weight_loss_real * loss_ce_real +
+                weight_loss_kd   * loss_kd +
+                weight_loss_cf   * loss_cf +
+                weight_loss_pair * loss_pair +
+                weight_loss_cos  * loss_cos)
 
         loss.backward()
         optim.step()
 
         avgmeter.update('loss', loss.item())
         avgmeter.update('interval loss', loss.item())
-        avgmeter.update('ce loss', loss_ce.item())
-        avgmeter.update('cf loss', loss_cf.item())
+        avgmeter.update('ce_loss', loss_ce_real.item())
+        avgmeter.update('kd_loss', loss_kd.item())
+        avgmeter.update('cf_loss', loss_cf.item())
+        avgmeter.update('pair_loss', loss_pair.item())
+        avgmeter.update('cos_loss', loss_cos.item())
         
-        if (cur_step+1) % print_interval == 0:
-            interval_loss = avgmeter.get_results('interval loss')
-            ce_loss = avgmeter.get_results('ce loss')
-            cf_loss = avgmeter.get_results('cf loss')
+        if (cur_step + 1) % print_interval == 0:
+            interval_loss = avgmeter.get_results('interval_loss')
+            ce_loss       = avgmeter.get_results('ce_loss')
+            kd_loss       = avgmeter.get_results('kd_loss')
+            cf_loss       = avgmeter.get_results('cf_loss')
+            pair_loss_val = avgmeter.get_results('pair_loss')
+            cos_loss_val  = avgmeter.get_results('cos_loss')
 
-            print("Epoch %d, Batch %d/%d, Loss=%f (ce=%f, cf=%s)" %
-                  (cur_epoch, cur_step+1, len(train_loader), interval_loss, ce_loss, cf_loss))
-            avgmeter.reset('interval loss')
-            avgmeter.reset('ce loss')
-            avgmeter.reset('cf loss')
+            print(f"Epoch {cur_epoch}, Batch {cur_step+1}/{len(train_loader)}, "
+                f"Loss={interval_loss:.4f} "
+                f"(CE={ce_loss:.4f}, KD={kd_loss:.4f}, CF={cf_loss:.4f}, "
+                f"Pair={pair_loss_val:.4f}, Cos={cos_loss_val:.4f})")
+
+            avgmeter.reset('interval_loss')
+            avgmeter.reset('ce_loss')
+            avgmeter.reset('kd_loss')
+            avgmeter.reset('cf_loss')
+            avgmeter.reset('pair_loss')
+            avgmeter.reset('cos_loss')
     if scheduler is not None:
         scheduler.step()
     return avgmeter.get_results('loss')
@@ -200,13 +264,12 @@ def main():
     opts = get_parser().parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # Set up random seed
+
     mkdir_if_missing('checkpoints')
     mkdir_if_missing('logs')
     log_dir = os.path.join('logs', 'student')
     os.makedirs(log_dir, exist_ok=True)
     sys.stdout = Logger(os.path.join(log_dir, f'amal_{opts.model}_{timestamp}.txt'))
-    # sys.stdout = Logger(os.path.join('logs', 'amal_%s.txt'%(opts.model)))
     print(opts)
 
     # 随机种子
@@ -218,28 +281,23 @@ def main():
     cur_epoch = 0
     best_score = 0.0
 
+    # 保存ckpt
     mkdir_if_missing('checkpoints')
-    # 需要修改
-    latest_ckpt = f'/root/autodl-tmp/bs/checkpoints/student/{opts.model}_{timestamp}_latest.pth'
-    best_ckpt = f'/root/autodl-tmp/bs/checkpoints/student/{opts.model}_{timestamp}_best.pth'
-    # latest_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_latest.pth'%opts.model
-    # best_ckpt = '/root/autodl-tmp/bs/checkpoints/student/%s_best.pth'%opts.model
+    ckpt_dir = f'/root/autodl-tmp/bs/checkpoints/student/{timestamp}'
+    os.makedirs(ckpt_dir, exist_ok=True)
+    latest_ckpt = f'{ckpt_dir}/{opts.model}_latest.pth'
+    best_ckpt = f'{ckpt_dir}/{opts.model}_best.pth'
 
-    #  Set up dataloader
-    #train_loader, val_loader = get_concat_dataloader(data_root=opts.data_root, batch_size=opts.batch_size, download=opts.download)
-    # 数据增强
-    transform = PairedTransform()
-
-    # 需要修改
-    train_dataset = INDataset(img_root=opts.data_root, dataset='train', task='S', fold=0, transform=transform)
-    val_dataset   = INDataset(img_root=opts.data_root, dataset='valid', task='S', fold=0, transform=transform)
+    # 数据加载
+    train_dataset = TeacherDataset(img_root=opts.data_root, dataset='train', task='S', fold=0)
+    val_dataset   = TeacherDataset(img_root=opts.data_root, dataset='valid', task='S', fold=0)
 
     train_loader = DataLoader(train_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=4)
     val_loader   = DataLoader(val_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=4)
 
     # pretrained teachers
     # 加载了教师模型，一个教师模型3分类，一个2分类。
-    # 拆成了两个任务。数量多的一起分，数量少的一起分。缓解类别不均衡。
+    # 原来拆成了两个任务。数量多的一起分，数量少的一起分。缓解类别不均衡。
     t1 = _model_dict["resnet18"](num_classes=2)
     t2 = _model_dict["resnet18"](num_classes=2)
 
@@ -355,6 +413,7 @@ def main():
                             cfl_blk=cfl_blk,
                             teachers=[t1, t2],
                             optim=optimizer,
+                            train_dataset=train_dataset,
                             train_loader=train_loader,
                             device=device,
                             scheduler=scheduler)
